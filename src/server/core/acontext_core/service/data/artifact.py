@@ -39,6 +39,7 @@ async def upload_and_build_artifact_meta(
     path: str,
     filename: str,
     content: str,
+    user_kek: bytes | None = None,
 ) -> tuple[dict, dict]:
     """Upload content to S3 and build asset_meta + meta dicts matching API behavior.
 
@@ -47,6 +48,7 @@ async def upload_and_build_artifact_meta(
         path: Artifact path (e.g., "/" or "/scripts/").
         filename: Artifact filename (e.g., "SKILL.md" or "main.py").
         content: Text content of the file.
+        user_kek: Optional user KEK for encrypting the upload.
 
     Returns:
         (asset_meta, artifact_info_meta) tuple:
@@ -60,7 +62,9 @@ async def upload_and_build_artifact_meta(
     date_prefix = datetime.now(timezone.utc).strftime("%Y/%m/%d")
     s3_key = f"disks/{project_id}/{date_prefix}/{sha256_hex}{ext}"
 
-    response = await S3_CLIENT.upload_object(s3_key, content_bytes, content_type=mime)
+    response = await S3_CLIENT.upload_object(
+        s3_key, content_bytes, content_type=mime, user_kek=user_kek
+    )
     etag = response.get("ETag", "").strip('"')
 
     asset_meta = {

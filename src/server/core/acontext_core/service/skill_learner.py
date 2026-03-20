@@ -1,3 +1,4 @@
+import base64
 from ..env import LOG, DEFAULT_CORE_CONFIG
 from ..infra.db import DB_CLIENT
 from ..infra.async_mq import (
@@ -47,8 +48,17 @@ async def process_skill_distillation(body: SkillLearnTask, message: Message):
     wide["learning_space_id"] = str(learning_space_id)
     wide["task_id"] = str(body.task_id)
 
+    # Decode user KEK from base64 if present
+    user_kek_bytes = None
+    if body.user_kek:
+        try:
+            user_kek_bytes = base64.b64decode(body.user_kek)
+        except Exception:
+            LOG.warning("skill_learner.invalid_user_kek", session_id=str(body.session_id))
+
     r = await SLC.process_context_distillation(
-        body.project_id, body.session_id, body.task_id, learning_space_id
+        body.project_id, body.session_id, body.task_id, learning_space_id,
+        user_kek=user_kek_bytes,
     )
     distilled_payload, eil = r.unpack()
     if eil:

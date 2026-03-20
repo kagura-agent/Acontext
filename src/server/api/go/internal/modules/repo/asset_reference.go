@@ -18,6 +18,7 @@ type AssetReferenceRepo interface {
 	DecrementAssetRef(ctx context.Context, projectID uuid.UUID, asset model.Asset) error
 	BatchIncrementAssetRefs(ctx context.Context, projectID uuid.UUID, assets []model.Asset) error
 	BatchDecrementAssetRefs(ctx context.Context, projectID uuid.UUID, assets []model.Asset) error
+	ListS3KeysByProject(ctx context.Context, projectID uuid.UUID) ([]string, error)
 }
 
 type assetReferenceRepo struct {
@@ -210,4 +211,17 @@ func (r *assetReferenceRepo) BatchDecrementAssetRefs(ctx context.Context, projec
 		}
 	}
 	return nil
+}
+
+// ListS3KeysByProject returns all distinct S3 keys for a project from the asset_references table.
+func (r *assetReferenceRepo) ListS3KeysByProject(ctx context.Context, projectID uuid.UUID) ([]string, error) {
+	var keys []string
+	err := r.db.WithContext(ctx).
+		Model(&model.AssetReference{}).
+		Where("project_id = ? AND s3_key != ''", projectID).
+		Pluck("s3_key", &keys).Error
+	if err != nil {
+		return nil, fmt.Errorf("list S3 keys by project: %w", err)
+	}
+	return keys, nil
 }

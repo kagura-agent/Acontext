@@ -11,10 +11,11 @@ import (
 )
 
 type AppCfg struct {
-	Name string
-	Env  string
-	Host string
-	Port int
+	Name        string
+	Env         string
+	Host        string
+	Port        int
+	ExternalURL string // Base URL for constructing material URLs (e.g. https://api.example.com)
 }
 
 type RootCfg struct {
@@ -119,6 +120,7 @@ type Config struct {
 func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.env", "debug")
 	v.SetDefault("app.port", 8029)
+	v.SetDefault("app.externalurl", "")
 	v.SetDefault("root.apiBearerToken", "your-root-api-bearer-token")
 	v.SetDefault("root.projectBearerTokenPrefix", "sk-ac-")
 	v.SetDefault("root.enableArgon2Verification", true)

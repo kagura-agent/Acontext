@@ -93,6 +93,7 @@ func main() {
 	learningSpaceHandler := do.MustInvoke[*handler.LearningSpaceHandler](inj)
 	sessionEventHandler := do.MustInvoke[*handler.SessionEventHandler](inj)
 	projectHandler := do.MustInvoke[*handler.ProjectHandler](inj)
+	materialHandler := do.MustInvoke[*handler.MaterialHandler](inj)
 
 	// build admin-specific handlers
 	adminHandler := do.MustInvoke[*handler.AdminHandler](inj)
@@ -113,6 +114,7 @@ func main() {
 			LearningSpaceHandler: learningSpaceHandler,
 			SessionEventHandler:  sessionEventHandler,
 			ProjectHandler:       projectHandler,
+			MaterialHandler:      materialHandler,
 		},
 		AdminHandler:   adminHandler,
 		MetricsHandler: metricsHandler,

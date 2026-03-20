@@ -24,7 +24,8 @@ type ArtifactService interface {
 	DeleteByPath(ctx context.Context, projectID uuid.UUID, diskID uuid.UUID, path string, filename string) error
 	GetByPath(ctx context.Context, diskID uuid.UUID, path string, filename string) (*model.Artifact, error)
 	GetPresignedURL(ctx context.Context, artifact *model.Artifact, expire time.Duration) (string, error)
-	GetFileContent(ctx context.Context, artifact *model.Artifact) (*fileparser.FileContent, error)
+	GetFileContent(ctx context.Context, artifact *model.Artifact, userKEK []byte) (*fileparser.FileContent, error)
+	DownloadRawContent(ctx context.Context, artifact *model.Artifact, userKEK []byte) ([]byte, string, error) // returns content, mime, error
 	UpdateArtifactMetaByPath(ctx context.Context, diskID uuid.UUID, path string, filename string, userMeta map[string]interface{}) (*model.Artifact, error)
 	ListByPath(ctx context.Context, diskID uuid.UUID, path string) ([]*model.Artifact, error)
 	GetAllPaths(ctx context.Context, diskID uuid.UUID) ([]string, error)
@@ -63,6 +64,7 @@ type CreateArtifactInput struct {
 	Filename   string
 	FileHeader *multipart.FileHeader
 	UserMeta   map[string]interface{}
+	UserKEK    []byte // optional: for envelope encryption
 }
 
 type CreateArtifactFromBytesInput struct {
@@ -71,6 +73,7 @@ type CreateArtifactFromBytesInput struct {
 	Path      string
 	Filename  string
 	Content   []byte
+	UserKEK   []byte // optional: for envelope encryption
 }
 
 func (s *artifactService) Create(ctx context.Context, in CreateArtifactInput) (*model.Artifact, error) {
@@ -85,25 +88,27 @@ func (s *artifactService) Create(ctx context.Context, in CreateArtifactInput) (*
 		}
 	}
 
-	asset, err := s.s3.UploadFormFile(ctx, "disks/"+in.ProjectID.String(), in.FileHeader)
+	asset, err := s.s3.UploadFormFile(ctx, "disks/"+in.ProjectID.String(), in.FileHeader, in.UserKEK)
 	if err != nil {
 		return nil, fmt.Errorf("upload file to S3: %w", err)
 	}
 
-	// Extract and store text content for text-searchable files
-	// This enables grep search functionality
-	parser := fileparser.NewFileParser()
+	// Extract and store text content for text-searchable files (grep/glob).
+	// Skip for encrypted projects — plaintext must not be stored in the DB.
+	// TODO: support encrypted content search via pg vector column indexing.
 	var textContent string
-	if parser.CanParseFile(in.FileHeader.Filename, asset.MIME) {
-		// Read file content to extract text
-		file, err := in.FileHeader.Open()
-		if err == nil {
-			content, readErr := io.ReadAll(file)
-			file.Close()
-			if readErr == nil {
-				fileContent, parseErr := parser.ParseFile(in.FileHeader.Filename, asset.MIME, content)
-				if parseErr == nil && fileContent != nil {
-					textContent = fileContent.Raw
+	if in.UserKEK == nil {
+		parser := fileparser.NewFileParser()
+		if parser.CanParseFile(in.FileHeader.Filename, asset.MIME) {
+			file, err := in.FileHeader.Open()
+			if err == nil {
+				content, readErr := io.ReadAll(file)
+				file.Close()
+				if readErr == nil {
+					fileContent, parseErr := parser.ParseFile(in.FileHeader.Filename, asset.MIME, content)
+					if parseErr == nil && fileContent != nil {
+						textContent = fileContent.Raw
+					}
 				}
 			}
 		}
@@ -152,19 +157,22 @@ func (s *artifactService) CreateFromBytes(ctx context.Context, in CreateArtifact
 	}
 
 	// Upload bytes to S3 with deduplication
-	asset, err := s.s3.UploadBytes(ctx, "disks/"+in.ProjectID.String(), in.Filename, in.Content)
+	asset, err := s.s3.UploadBytes(ctx, "disks/"+in.ProjectID.String(), in.Filename, in.Content, in.UserKEK)
 	if err != nil {
 		return nil, fmt.Errorf("upload bytes to S3: %w", err)
 	}
 
-	// Extract and store text content for text-searchable files
-	// This enables grep search functionality
-	parser := fileparser.NewFileParser()
+	// Extract and store text content for text-searchable files (grep/glob).
+	// Skip for encrypted projects — plaintext must not be stored in the DB.
+	// TODO: support encrypted content search via pg vector column indexing.
 	var textContent string
-	if parser.CanParseFile(in.Filename, asset.MIME) {
-		fileContent, parseErr := parser.ParseFile(in.Filename, asset.MIME, in.Content)
-		if parseErr == nil && fileContent != nil {
-			textContent = fileContent.Raw
+	if in.UserKEK == nil {
+		parser := fileparser.NewFileParser()
+		if parser.CanParseFile(in.Filename, asset.MIME) {
+			fileContent, parseErr := parser.ParseFile(in.Filename, asset.MIME, in.Content)
+			if parseErr == nil && fileContent != nil {
+				textContent = fileContent.Raw
+			}
 		}
 	}
 	asset.Content = textContent
@@ -226,7 +234,7 @@ func (s *artifactService) GetPresignedURL(ctx context.Context, artifact *model.A
 	return s.s3.PresignGet(ctx, assetData.S3Key, expire)
 }
 
-func (s *artifactService) GetFileContent(ctx context.Context, artifact *model.Artifact) (*fileparser.FileContent, error) {
+func (s *artifactService) GetFileContent(ctx context.Context, artifact *model.Artifact, userKEK []byte) (*fileparser.FileContent, error) {
 	if artifact == nil {
 		return nil, errors.New("artifact is nil")
 	}
@@ -243,7 +251,7 @@ func (s *artifactService) GetFileContent(ctx context.Context, artifact *model.Ar
 	}
 
 	// Download file content from S3
-	content, err := s.s3.DownloadFile(ctx, assetData.S3Key)
+	content, err := s.s3.DownloadFile(ctx, assetData.S3Key, userKEK)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download file content: %w", err)
 	}
@@ -255,6 +263,23 @@ func (s *artifactService) GetFileContent(ctx context.Context, artifact *model.Ar
 	}
 
 	return fileContent, nil
+}
+
+// DownloadRawContent downloads the raw file bytes from S3 (auto-decrypts if encrypted).
+// Returns content bytes, MIME type, and error.
+func (s *artifactService) DownloadRawContent(ctx context.Context, artifact *model.Artifact, userKEK []byte) ([]byte, string, error) {
+	if artifact == nil {
+		return nil, "", errors.New("artifact is nil")
+	}
+	assetData := artifact.AssetMeta.Data()
+	if assetData.S3Key == "" {
+		return nil, "", errors.New("artifact has no S3 key")
+	}
+	content, err := s.s3.DownloadFile(ctx, assetData.S3Key, userKEK)
+	if err != nil {
+		return nil, "", fmt.Errorf("download file: %w", err)
+	}
+	return content, assetData.MIME, nil
 }
 
 func (s *artifactService) UpdateArtifactMetaByPath(ctx context.Context, diskID uuid.UUID, path string, filename string, userMeta map[string]interface{}) (*model.Artifact, error) {

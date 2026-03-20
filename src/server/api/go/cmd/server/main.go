@@ -93,7 +93,7 @@ func main() {
 	learningSpaceHandler := do.MustInvoke[*handler.LearningSpaceHandler](inj)
 	sessionEventHandler := do.MustInvoke[*handler.SessionEventHandler](inj)
 	projectHandler := do.MustInvoke[*handler.ProjectHandler](inj)
-
+	materialHandler := do.MustInvoke[*handler.MaterialHandler](inj)
 	engine := router.NewRouter(router.RouterDeps{
 		Config:               cfg,
 		DB:                   db,
@@ -108,6 +108,7 @@ func main() {
 		LearningSpaceHandler: learningSpaceHandler,
 		SessionEventHandler:  sessionEventHandler,
 		ProjectHandler:       projectHandler,
+		MaterialHandler:      materialHandler,
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)

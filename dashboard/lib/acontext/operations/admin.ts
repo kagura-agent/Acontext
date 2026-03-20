@@ -214,6 +214,36 @@ export function AdminOperations<T extends Constructor<BaseClient>>(Base: T) {
     }
 
     /**
+     * Encrypt a project — POST /admin/v1/project/encrypt
+     * Requires the user's API key as Bearer auth
+     */
+    async encryptProject(projectId: string, apiKey: string): Promise<void> {
+      await this.request<void>("/admin/v1/project/encrypt", {
+        method: "POST",
+        projectId,
+        body: JSON.stringify({ project_id: projectId }),
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+        },
+      });
+    }
+
+    /**
+     * Decrypt a project — POST /admin/v1/project/decrypt
+     * Requires the user's API key as Bearer auth
+     */
+    async decryptProject(projectId: string, apiKey: string): Promise<void> {
+      await this.request<void>("/admin/v1/project/decrypt", {
+        method: "POST",
+        projectId,
+        body: JSON.stringify({ project_id: projectId }),
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+        },
+      });
+    }
+
+    /**
      * Get traces for a project via acontext API
      * Maps to /project/:project_id/metrics endpoint
      * Parameters are aligned with Jaeger API for passthrough

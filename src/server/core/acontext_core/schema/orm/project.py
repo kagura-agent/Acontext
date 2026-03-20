@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
-from sqlalchemy import String, Index, Column
+from datetime import datetime
+from sqlalchemy import Boolean, DateTime, String, Text, Index, Column
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from typing import TYPE_CHECKING, List, Optional
@@ -29,8 +30,27 @@ class Project(CommonMixin):
         metadata={"db": Column(String(255), nullable=False)}
     )
 
+    encryption_enabled: bool = field(
+        default=False,
+        metadata={"db": Column(Boolean, nullable=False, server_default="false")},
+    )
+
     configs: Optional[dict] = field(
         default=None, metadata={"db": Column(JSONB, nullable=True)}
+    )
+
+    # Key rotation state (non-nil during rotation)
+    rotation_encrypted_secret: Optional[str] = field(
+        default=None, metadata={"db": Column(Text, nullable=True)}
+    )
+    rotation_new_hmac: Optional[str] = field(
+        default=None, metadata={"db": Column(String(64), nullable=True)}
+    )
+    rotation_new_phc: Optional[str] = field(
+        default=None, metadata={"db": Column(String(255), nullable=True)}
+    )
+    rotation_started_at: Optional[datetime] = field(
+        default=None, metadata={"db": Column(DateTime(timezone=True), nullable=True)}
     )
 
     # Relationships

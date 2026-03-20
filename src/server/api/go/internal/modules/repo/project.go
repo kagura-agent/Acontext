@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/memodb-io/Acontext/internal/modules/model"
@@ -14,6 +15,9 @@ type ProjectRepo interface {
 	Delete(ctx context.Context, projectID uuid.UUID) error
 	GetByID(ctx context.Context, projectID uuid.UUID) (*model.Project, error)
 	Update(ctx context.Context, p *model.Project) error
+	SetRotationState(ctx context.Context, projectID uuid.UUID, encryptedSecret, newHMAC, newPHC string) error
+	FinalizeRotation(ctx context.Context, projectID uuid.UUID) error
+	ClearRotationState(ctx context.Context, projectID uuid.UUID) error
 	AnalyzeUsages(ctx context.Context, projectID uuid.UUID, intervalDays int, fields []string) (*AnalyzeUsagesResult, error)
 	AnalyzeStatistics(ctx context.Context, projectID uuid.UUID) (*AnalyzeStatisticsResult, error)
 }
@@ -124,6 +128,50 @@ func (r *projectRepo) GetByID(ctx context.Context, projectID uuid.UUID) (*model.
 
 func (r *projectRepo) Update(ctx context.Context, p *model.Project) error {
 	return r.db.WithContext(ctx).Model(&model.Project{}).Where("id = ?", p.ID).Updates(p).Error
+}
+
+// SetRotationState stores pre-computed rotation credentials so the key
+// can be committed after all DEKs have been rewrapped (crash-safe).
+func (r *projectRepo) SetRotationState(ctx context.Context, projectID uuid.UUID, encryptedSecret, newHMAC, newPHC string) error {
+	now := time.Now()
+	return r.db.WithContext(ctx).Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]interface{}{
+		"rotation_encrypted_secret": encryptedSecret,
+		"rotation_new_hmac":         newHMAC,
+		"rotation_new_phc":          newPHC,
+		"rotation_started_at":       now,
+	}).Error
+}
+
+// FinalizeRotation atomically commits the pre-computed new credentials
+// and clears the rotation state in a single transaction.
+func (r *projectRepo) FinalizeRotation(ctx context.Context, projectID uuid.UUID) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var p model.Project
+		if err := tx.Where("id = ?", projectID).First(&p).Error; err != nil {
+			return err
+		}
+		if p.RotationNewHMAC == nil || p.RotationNewPHC == nil {
+			return nil // nothing to finalize
+		}
+		return tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]interface{}{
+			"secret_key_hmac":           *p.RotationNewHMAC,
+			"secret_key_hash_phc":       *p.RotationNewPHC,
+			"rotation_encrypted_secret": nil,
+			"rotation_new_hmac":         nil,
+			"rotation_new_phc":          nil,
+			"rotation_started_at":       nil,
+		}).Error
+	})
+}
+
+// ClearRotationState removes pending rotation state without committing new credentials.
+func (r *projectRepo) ClearRotationState(ctx context.Context, projectID uuid.UUID) error {
+	return r.db.WithContext(ctx).Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]interface{}{
+		"rotation_encrypted_secret": nil,
+		"rotation_new_hmac":         nil,
+		"rotation_new_phc":          nil,
+		"rotation_started_at":       nil,
+	}).Error
 }
 
 func (r *projectRepo) AnalyzeUsages(ctx context.Context, projectID uuid.UUID, intervalDays int, fields []string) (*AnalyzeUsagesResult, error) {

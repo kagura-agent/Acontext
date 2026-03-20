@@ -146,6 +146,94 @@ export async function getProjectConfigs(
   }
 }
 
+export async function encryptProjectAction(
+  projectId: string,
+  apiKey: string
+): Promise<{ success?: boolean; error?: string }> {
+  try {
+    await getCurrentUser();
+
+    const project = await getProject(projectId);
+    if (!project) {
+      return { error: "Project not found" };
+    }
+
+    const membership = await getOrganizationMembershipForCurrentUser(
+      project.organization_id,
+      "role"
+    );
+    if (!membership) {
+      return { error: "Project not found or access denied" };
+    }
+    if (membership.role !== "owner") {
+      return { error: "Only organization owners can enable encryption" };
+    }
+
+    const baseUrl = process.env.ACONTEXT_API_BASE_URL ?? "https://admin.acontext.app";
+    const resp = await fetch(`${baseUrl}/admin/v1/project/encrypt`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    });
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      throw new Error(body.msg || `HTTP ${resp.status}`);
+    }
+
+    const encodedProjectId = encodeId(projectId);
+    revalidatePath(`/project/${encodedProjectId}`, "layout");
+
+    return { success: true };
+  } catch (error) {
+    return {
+      error: `Failed to encrypt project: ${error instanceof Error ? error.message : "Unknown error"}`,
+    };
+  }
+}
+
+export async function decryptProjectAction(
+  projectId: string,
+  apiKey: string
+): Promise<{ success?: boolean; error?: string }> {
+  try {
+    await getCurrentUser();
+
+    const project = await getProject(projectId);
+    if (!project) {
+      return { error: "Project not found" };
+    }
+
+    const membership = await getOrganizationMembershipForCurrentUser(
+      project.organization_id,
+      "role"
+    );
+    if (!membership) {
+      return { error: "Project not found or access denied" };
+    }
+    if (membership.role !== "owner") {
+      return { error: "Only organization owners can disable encryption" };
+    }
+
+    const baseUrl = process.env.ACONTEXT_API_BASE_URL ?? "https://admin.acontext.app";
+    const resp = await fetch(`${baseUrl}/admin/v1/project/decrypt`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    });
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      throw new Error(body.msg || `HTTP ${resp.status}`);
+    }
+
+    const encodedProjectId = encodeId(projectId);
+    revalidatePath(`/project/${encodedProjectId}`, "layout");
+
+    return { success: true };
+  } catch (error) {
+    return {
+      error: `Failed to decrypt project: ${error instanceof Error ? error.message : "Unknown error"}`,
+    };
+  }
+}
+
 export async function updateProjectConfigs(
   projectId: string,
   configs: Partial<ProjectConfig>
