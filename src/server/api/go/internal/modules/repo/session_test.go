@@ -426,6 +426,10 @@ func (m *MockAssetReferenceRepoForCopy) BatchDecrementAssetRefs(ctx context.Cont
 	return nil
 }
 
+func (m *MockAssetReferenceRepoForCopy) ListS3KeysByProject(ctx context.Context, projectID uuid.UUID) ([]string, error) {
+	return nil, nil
+}
+
 // TestSessionRepo_CopySession tests the CopySession method with comprehensive scenarios
 func TestSessionRepo_CopySession(t *testing.T) {
 	db := setupSessionTestDB(t)
@@ -507,7 +511,7 @@ func TestSessionRepo_CopySession(t *testing.T) {
 		repo := NewSessionRepo(db, mockAssetRepo, nil, logger)
 
 		// Copy session
-		result, err := repo.CopySession(ctx, originalSession.ID)
+		result, err := repo.CopySession(ctx, originalSession.ID, nil)
 		require.NoError(t, err)
 		assert.Equal(t, originalSession.ID, result.OldSessionID)
 		assert.NotEqual(t, originalSession.ID, result.NewSessionID)
@@ -554,7 +558,7 @@ func TestSessionRepo_CopySession(t *testing.T) {
 		repo := NewSessionRepo(db, mockAssetRepo, nil, logger)
 
 		// Copy session
-		result, err := repo.CopySession(ctx, originalSession.ID)
+		result, err := repo.CopySession(ctx, originalSession.ID, nil)
 		require.NoError(t, err)
 
 		// Verify new session exists
@@ -620,7 +624,7 @@ func TestSessionRepo_CopySession(t *testing.T) {
 		repo := NewSessionRepo(db, mockAssetRepo, nil, logger)
 
 		// Copy session
-		result, err := repo.CopySession(ctx, originalSession.ID)
+		result, err := repo.CopySession(ctx, originalSession.ID, nil)
 		require.NoError(t, err)
 
 		// Verify messages with correct parent relationships
@@ -673,7 +677,7 @@ func TestSessionRepo_CopySession(t *testing.T) {
 		repo := NewSessionRepo(db, mockAssetRepo, nil, logger)
 
 		// Copy session
-		_, err := repo.CopySession(ctx, originalSession.ID)
+		_, err := repo.CopySession(ctx, originalSession.ID, nil)
 		require.NoError(t, err)
 
 		// Verify parts assets were collected for reference counting
@@ -707,7 +711,7 @@ func TestSessionRepo_CopySession(t *testing.T) {
 		mockAssetRepo := &MockAssetReferenceRepoForCopy{}
 		repo := NewSessionRepo(db, mockAssetRepo, nil, logger)
 
-		result, err := repo.CopySession(ctx, originalSession.ID)
+		result, err := repo.CopySession(ctx, originalSession.ID, nil)
 		require.NoError(t, err)
 
 		var newSession model.Session
@@ -748,7 +752,7 @@ func TestSessionRepo_CopySession(t *testing.T) {
 		repo := NewSessionRepo(db, mockAssetRepo, nil, logger)
 
 		// Copy should fail
-		result, err := repo.CopySession(ctx, originalSession.ID)
+		result, err := repo.CopySession(ctx, originalSession.ID, nil)
 		require.Error(t, err)
 		assert.Nil(t, result)
 		assert.Contains(t, err.Error(), "asset increment failed")
@@ -794,7 +798,7 @@ func TestSessionRepo_CopySession(t *testing.T) {
 		repo := NewSessionRepo(db, mockAssetRepo, nil, logger)
 
 		// Copy should fail with size limit error
-		result, err := repo.CopySession(ctx, originalSession.ID)
+		result, err := repo.CopySession(ctx, originalSession.ID, nil)
 		require.Error(t, err)
 		assert.Nil(t, result)
 		assert.Contains(t, err.Error(), "exceeds maximum copyable size")
@@ -831,7 +835,7 @@ func TestSessionRepo_CopySession(t *testing.T) {
 		repo := NewSessionRepo(db, mockAssetRepo, nil, logger)
 
 		// Copy should succeed but log warning about orphaned parent
-		result, err := repo.CopySession(ctx, originalSession.ID)
+		result, err := repo.CopySession(ctx, originalSession.ID, nil)
 		require.NoError(t, err)
 
 		// Verify message was copied without parent
@@ -870,7 +874,7 @@ func TestSessionRepo_CopySession(t *testing.T) {
 		}, 2)
 
 		go func() {
-			result, err := repo.CopySession(ctx, originalSession.ID)
+			result, err := repo.CopySession(ctx, originalSession.ID, nil)
 			results <- struct {
 				result *CopySessionResult
 				err    error
@@ -878,7 +882,7 @@ func TestSessionRepo_CopySession(t *testing.T) {
 		}()
 
 		go func() {
-			result, err := repo.CopySession(ctx, originalSession.ID)
+			result, err := repo.CopySession(ctx, originalSession.ID, nil)
 			results <- struct {
 				result *CopySessionResult
 				err    error
@@ -936,7 +940,7 @@ func TestSessionRepo_CopySession(t *testing.T) {
 		repo := NewSessionRepo(db, mockAssetRepo, nil, logger)
 
 		// Copy session
-		result, err := repo.CopySession(ctx, originalSession.ID)
+		result, err := repo.CopySession(ctx, originalSession.ID, nil)
 		require.NoError(t, err)
 
 		// Verify tasks were copied in correct order
@@ -968,7 +972,7 @@ func TestSessionRepo_CopySession(t *testing.T) {
 		repo := NewSessionRepo(db, mockAssetRepo, nil, logger)
 
 		// Copy session
-		result, err := repo.CopySession(ctx, originalSession.ID)
+		result, err := repo.CopySession(ctx, originalSession.ID, nil)
 		require.NoError(t, err)
 
 		// Verify configs were preserved
@@ -990,7 +994,7 @@ func TestSessionRepo_CopySession(t *testing.T) {
 		repo := NewSessionRepo(db, mockAssetRepo, nil, logger)
 
 		// Copy session
-		result, err := repo.CopySession(ctx, originalSession.ID)
+		result, err := repo.CopySession(ctx, originalSession.ID, nil)
 		require.NoError(t, err)
 
 		// Verify flag was preserved

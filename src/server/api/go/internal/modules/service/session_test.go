@@ -2,15 +2,18 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
 	"github.com/memodb-io/Acontext/internal/config"
 	"github.com/memodb-io/Acontext/internal/modules/model"
 	"github.com/memodb-io/Acontext/internal/modules/repo"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"go.uber.org/zap"
@@ -27,8 +30,8 @@ func (m *MockSessionRepo) Create(ctx context.Context, s *model.Session) error {
 	return args.Error(0)
 }
 
-func (m *MockSessionRepo) Delete(ctx context.Context, projectID uuid.UUID, sessionID uuid.UUID) error {
-	args := m.Called(ctx, projectID, sessionID)
+func (m *MockSessionRepo) Delete(ctx context.Context, projectID uuid.UUID, sessionID uuid.UUID, userKEK []byte) error {
+	args := m.Called(ctx, projectID, sessionID, userKEK)
 	return args.Error(0)
 }
 
@@ -105,8 +108,8 @@ func (m *MockSessionRepo) UpdateMessageMeta(ctx context.Context, messageID uuid.
 	return args.Error(0)
 }
 
-func (m *MockSessionRepo) CopySession(ctx context.Context, sessionID uuid.UUID) (*repo.CopySessionResult, error) {
-	args := m.Called(ctx, sessionID)
+func (m *MockSessionRepo) CopySession(ctx context.Context, sessionID uuid.UUID, userKEK []byte) (*repo.CopySessionResult, error) {
+	args := m.Called(ctx, sessionID, userKEK)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -146,6 +149,14 @@ func (m *MockAssetReferenceRepo) BatchIncrementAssetRefs(ctx context.Context, pr
 func (m *MockAssetReferenceRepo) BatchDecrementAssetRefs(ctx context.Context, projectID uuid.UUID, assets []model.Asset) error {
 	args := m.Called(ctx, projectID, assets)
 	return args.Error(0)
+}
+
+func (m *MockAssetReferenceRepo) ListS3KeysByProject(ctx context.Context, projectID uuid.UUID) ([]string, error) {
+	args := m.Called(ctx, projectID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]string), args.Error(1)
 }
 
 // MockBlobService is a mock implementation of blob service
@@ -240,7 +251,7 @@ func TestSessionService_Create(t *testing.T) {
 					},
 				},
 			}
-			service := NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, nil)
+			service := NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, nil, nil)
 
 			err := service.Create(ctx, tt.session)
 
@@ -276,7 +287,7 @@ func TestSessionService_Delete(t *testing.T) {
 			projectID: projectID,
 			sessionID: sessionID,
 			setup: func(repo *MockSessionRepo) {
-				repo.On("Delete", ctx, projectID, sessionID).Return(nil)
+				repo.On("Delete", ctx, projectID, sessionID, []byte(nil)).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -286,7 +297,7 @@ func TestSessionService_Delete(t *testing.T) {
 			sessionID: uuid.UUID{},
 			setup: func(repo *MockSessionRepo) {
 				// Empty UUID will call Delete, because len(uuid.UUID{}) != 0
-				repo.On("Delete", ctx, projectID, mock.AnythingOfType("uuid.UUID")).Return(nil)
+				repo.On("Delete", ctx, projectID, mock.AnythingOfType("uuid.UUID"), []byte(nil)).Return(nil)
 			},
 			wantErr: false, // Actually won't error
 		},
@@ -295,7 +306,7 @@ func TestSessionService_Delete(t *testing.T) {
 			projectID: projectID,
 			sessionID: sessionID,
 			setup: func(repo *MockSessionRepo) {
-				repo.On("Delete", ctx, projectID, sessionID).Return(errors.New("deletion failed"))
+				repo.On("Delete", ctx, projectID, sessionID, []byte(nil)).Return(errors.New("deletion failed"))
 			},
 			wantErr: true,
 		},
@@ -318,9 +329,9 @@ func TestSessionService_Delete(t *testing.T) {
 					},
 				},
 			}
-			service := NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, nil)
+			service := NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, nil, nil)
 
-			err := service.Delete(ctx, tt.projectID, tt.sessionID)
+			err := service.Delete(ctx, tt.projectID, tt.sessionID, nil)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -403,7 +414,7 @@ func TestSessionService_GetByID(t *testing.T) {
 					},
 				},
 			}
-			service := NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, nil)
+			service := NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, nil, nil)
 
 			result, err := service.GetByID(ctx, tt.session)
 
@@ -475,7 +486,7 @@ func TestSessionService_UpdateByID(t *testing.T) {
 					},
 				},
 			}
-			service := NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, nil)
+			service := NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, nil, nil)
 
 			err := service.UpdateByID(ctx, tt.session)
 
@@ -566,7 +577,7 @@ func TestSessionService_List(t *testing.T) {
 					},
 				},
 			}
-			service := NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, nil)
+			service := NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, nil, nil)
 
 			result, err := service.List(ctx, tt.input)
 
@@ -1085,7 +1096,7 @@ func TestSessionService_StoreMessage_GeminiFunctionResponse(t *testing.T) {
 			var service SessionService
 			if tt.wantErr {
 				// For error cases, we can use nil S3 since errors happen before S3 upload
-				service = NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, nil)
+				service = NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, nil, nil)
 			} else {
 				// For success cases, we need to skip this test or use integration test
 				// For now, we'll mark these as skipped or use a workaround
@@ -1118,6 +1129,8 @@ func TestSessionService_StoreMessage_GeminiFunctionResponse(t *testing.T) {
 func TestSessionService_GetMessages(t *testing.T) {
 	ctx := context.Background()
 	sessionID := uuid.New()
+	projectID := uuid.New()
+	matchSession := &model.Session{ID: sessionID, ProjectID: projectID}
 
 	tests := []struct {
 		name    string
@@ -1129,11 +1142,13 @@ func TestSessionService_GetMessages(t *testing.T) {
 		{
 			name: "repository query failure",
 			input: GetMessagesInput{
+				ProjectID: projectID,
 				SessionID: sessionID,
 				Limit:     10,
 				TimeDesc:  false,
 			},
 			setup: func(repo *MockSessionRepo) {
+				repo.On("Get", ctx, mock.MatchedBy(func(s *model.Session) bool { return s.ID == sessionID })).Return(matchSession, nil)
 				repo.On("ListBySessionWithCursor", ctx, sessionID, time.Time{}, uuid.UUID{}, 11, false).Return(nil, errors.New("query failure"))
 			},
 			wantErr: true,
@@ -1141,11 +1156,13 @@ func TestSessionService_GetMessages(t *testing.T) {
 		{
 			name: "successful message retrieval with time_desc=false",
 			input: GetMessagesInput{
+				ProjectID: projectID,
 				SessionID: sessionID,
 				Limit:     10,
 				TimeDesc:  false,
 			},
 			setup: func(repo *MockSessionRepo) {
+				repo.On("Get", ctx, mock.MatchedBy(func(s *model.Session) bool { return s.ID == sessionID })).Return(matchSession, nil)
 				msgs := []model.Message{
 					{ID: uuid.New(), SessionID: sessionID, Role: model.RoleUser},
 				}
@@ -1156,11 +1173,13 @@ func TestSessionService_GetMessages(t *testing.T) {
 		{
 			name: "successful message retrieval with time_desc=true",
 			input: GetMessagesInput{
+				ProjectID: projectID,
 				SessionID: sessionID,
 				Limit:     10,
 				TimeDesc:  true,
 			},
 			setup: func(repo *MockSessionRepo) {
+				repo.On("Get", ctx, mock.MatchedBy(func(s *model.Session) bool { return s.ID == sessionID })).Return(matchSession, nil)
 				msgs := []model.Message{
 					{ID: uuid.New(), SessionID: sessionID, Role: model.RoleUser},
 				}
@@ -1171,12 +1190,14 @@ func TestSessionService_GetMessages(t *testing.T) {
 		{
 			name: "with cursor and time_desc",
 			input: GetMessagesInput{
+				ProjectID: projectID,
 				SessionID: sessionID,
 				Limit:     10,
 				Cursor:    "some-valid-cursor", // Use a placeholder cursor
 				TimeDesc:  false,
 			},
 			setup: func(repo *MockSessionRepo) {
+				repo.On("Get", ctx, mock.MatchedBy(func(s *model.Session) bool { return s.ID == sessionID })).Return(matchSession, nil)
 				// Expect an error due to invalid cursor format, so no repo call expected
 			},
 			wantErr: true,
@@ -1185,11 +1206,13 @@ func TestSessionService_GetMessages(t *testing.T) {
 		{
 			name: "limit=0 retrieves all messages using ListAllMessagesBySession",
 			input: GetMessagesInput{
+				ProjectID: projectID,
 				SessionID: sessionID,
 				Limit:     0,
 				TimeDesc:  false,
 			},
 			setup: func(repo *MockSessionRepo) {
+				repo.On("Get", ctx, mock.MatchedBy(func(s *model.Session) bool { return s.ID == sessionID })).Return(matchSession, nil)
 				msgs := []model.Message{
 					{ID: uuid.New(), SessionID: sessionID, Role: model.RoleUser},
 					{ID: uuid.New(), SessionID: sessionID, Role: model.RoleAssistant},
@@ -1201,11 +1224,13 @@ func TestSessionService_GetMessages(t *testing.T) {
 		{
 			name: "limit=-1 retrieves all messages using ListAllMessagesBySession",
 			input: GetMessagesInput{
+				ProjectID: projectID,
 				SessionID: sessionID,
 				Limit:     -1,
 				TimeDesc:  false,
 			},
 			setup: func(repo *MockSessionRepo) {
+				repo.On("Get", ctx, mock.MatchedBy(func(s *model.Session) bool { return s.ID == sessionID })).Return(matchSession, nil)
 				msgs := []model.Message{
 					{ID: uuid.New(), SessionID: sessionID, Role: model.RoleUser},
 				}
@@ -1216,11 +1241,13 @@ func TestSessionService_GetMessages(t *testing.T) {
 		{
 			name: "ListAllMessagesBySession error handling",
 			input: GetMessagesInput{
+				ProjectID: projectID,
 				SessionID: sessionID,
 				Limit:     0,
 				TimeDesc:  false,
 			},
 			setup: func(repo *MockSessionRepo) {
+				repo.On("Get", ctx, mock.MatchedBy(func(s *model.Session) bool { return s.ID == sessionID })).Return(matchSession, nil)
 				repo.On("ListAllMessagesBySession", ctx, sessionID).Return(nil, errors.New("database error"))
 			},
 			wantErr: true,
@@ -1245,7 +1272,7 @@ func TestSessionService_GetMessages(t *testing.T) {
 				},
 			}
 			// Note: blob is nil in test, so GetMessages will skip DownloadJSON and PresignGet
-			service := NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, nil)
+			service := NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, nil, nil)
 
 			result, err := service.GetMessages(ctx, tt.input)
 
@@ -1272,6 +1299,8 @@ func TestSessionService_GetMessages(t *testing.T) {
 func TestSessionService_GetMessages_SortOrder(t *testing.T) {
 	ctx := context.Background()
 	sessionID := uuid.New()
+	projectID := uuid.New()
+	matchSession := &model.Session{ID: sessionID, ProjectID: projectID}
 
 	// Create test messages with different timestamps
 	now := time.Now()
@@ -1292,6 +1321,7 @@ func TestSessionService_GetMessages_SortOrder(t *testing.T) {
 		{
 			name: "messages sorted from old to new when time_desc=false",
 			input: GetMessagesInput{
+				ProjectID: projectID,
 				SessionID: sessionID,
 				Limit:     10,
 				TimeDesc:  false,
@@ -1303,6 +1333,7 @@ func TestSessionService_GetMessages_SortOrder(t *testing.T) {
 			},
 			expectedOrder: []uuid.UUID{msg1ID, msg2ID, msg3ID},
 			setup: func(repo *MockSessionRepo) {
+				repo.On("Get", ctx, mock.MatchedBy(func(s *model.Session) bool { return s.ID == sessionID })).Return(matchSession, nil)
 				msgs := []model.Message{
 					{ID: msg1ID, SessionID: sessionID, Role: model.RoleUser, CreatedAt: now.Add(-3 * time.Hour)},
 					{ID: msg2ID, SessionID: sessionID, Role: model.RoleAssistant, CreatedAt: now.Add(-2 * time.Hour)},
@@ -1315,6 +1346,7 @@ func TestSessionService_GetMessages_SortOrder(t *testing.T) {
 		{
 			name: "messages sorted from old to new even when time_desc=true (repo returns desc order)",
 			input: GetMessagesInput{
+				ProjectID: projectID,
 				SessionID: sessionID,
 				Limit:     10,
 				TimeDesc:  true,
@@ -1326,6 +1358,7 @@ func TestSessionService_GetMessages_SortOrder(t *testing.T) {
 			},
 			expectedOrder: []uuid.UUID{msg1ID, msg2ID, msg3ID}, // Still old to new
 			setup: func(repo *MockSessionRepo) {
+				repo.On("Get", ctx, mock.MatchedBy(func(s *model.Session) bool { return s.ID == sessionID })).Return(matchSession, nil)
 				// Repo returns messages in descending order (newest first)
 				msgs := []model.Message{
 					{ID: msg3ID, SessionID: sessionID, Role: model.RoleUser, CreatedAt: now.Add(-1 * time.Hour)},
@@ -1339,6 +1372,7 @@ func TestSessionService_GetMessages_SortOrder(t *testing.T) {
 		{
 			name: "messages with same timestamp sorted by ID",
 			input: GetMessagesInput{
+				ProjectID: projectID,
 				SessionID: sessionID,
 				Limit:     10,
 				TimeDesc:  false,
@@ -1351,6 +1385,7 @@ func TestSessionService_GetMessages_SortOrder(t *testing.T) {
 			// When timestamps are equal, sort by ID (lexicographically)
 			expectedOrder: []uuid.UUID{msg1ID, msg2ID, msg4ID}, // Assuming these IDs sort this way lexicographically
 			setup: func(repo *MockSessionRepo) {
+				repo.On("Get", ctx, mock.MatchedBy(func(s *model.Session) bool { return s.ID == sessionID })).Return(matchSession, nil)
 				msgs := []model.Message{
 					{ID: msg4ID, SessionID: sessionID, Role: model.RoleUser, CreatedAt: now},
 					{ID: msg2ID, SessionID: sessionID, Role: model.RoleAssistant, CreatedAt: now},
@@ -1363,6 +1398,7 @@ func TestSessionService_GetMessages_SortOrder(t *testing.T) {
 		{
 			name: "mixed order from repo gets sorted to old-to-new",
 			input: GetMessagesInput{
+				ProjectID: projectID,
 				SessionID: sessionID,
 				Limit:     10,
 				TimeDesc:  false,
@@ -1375,6 +1411,7 @@ func TestSessionService_GetMessages_SortOrder(t *testing.T) {
 			},
 			expectedOrder: []uuid.UUID{msg1ID, msg2ID, msg3ID, msg4ID},
 			setup: func(repo *MockSessionRepo) {
+				repo.On("Get", ctx, mock.MatchedBy(func(s *model.Session) bool { return s.ID == sessionID })).Return(matchSession, nil)
 				// Repo returns messages in random order
 				msgs := []model.Message{
 					{ID: msg2ID, SessionID: sessionID, Role: model.RoleAssistant, CreatedAt: now.Add(-2 * time.Hour)},
@@ -1405,7 +1442,7 @@ func TestSessionService_GetMessages_SortOrder(t *testing.T) {
 					},
 				},
 			}
-			service := NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, nil)
+			service := NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, nil, nil)
 
 			result, err := service.GetMessages(ctx, tt.input)
 
@@ -1438,4 +1475,134 @@ func TestSessionService_GetMessages_SortOrder(t *testing.T) {
 			repo.AssertExpectations(t)
 		})
 	}
+}
+
+func TestSessionService_GetMessages_MaterialURLs(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	cfg := &config.Config{}
+	projectID := uuid.New()
+	sessionID := uuid.New()
+
+	// Parts to cache in Redis so loadPartsForMessage succeeds without S3
+	imageParts := []model.Part{
+		{
+			Type: "image",
+			Asset: &model.Asset{
+				S3Key:  "assets/proj/img.png",
+				SHA256: "sha-img",
+				MIME:   "image/png",
+			},
+			Filename: "photo.png",
+		},
+	}
+	textParts := []model.Part{
+		{Type: "text", Text: "hello"},
+	}
+
+	// Helper: seed Redis with plaintext-cached parts (prefix 0x00 + JSON)
+	seedPartsCache := func(t *testing.T, rdb *redis.Client, sha256 string, parts []model.Part) {
+		t.Helper()
+		jsonData, err := json.Marshal(parts)
+		assert.NoError(t, err)
+		cacheData := append([]byte{0x00}, jsonData...)
+		err = rdb.Set(context.Background(), "message:parts:"+sha256, cacheData, time.Hour).Err()
+		assert.NoError(t, err)
+	}
+
+	t.Run("WithAssetPublicURL generates material URLs for assets", func(t *testing.T) {
+		mr := miniredis.RunT(t)
+		rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+
+		repo := new(MockSessionRepo)
+		mockAssetRefRepo := new(MockAssetReferenceRepo)
+		mockMaterialSvc := new(MockMaterialService)
+
+		session := &model.Session{ID: sessionID, ProjectID: projectID}
+		repo.On("Get", mock.Anything, mock.Anything).Return(session, nil)
+
+		msgs := []model.Message{
+			{
+				ID:        uuid.New(),
+				SessionID: sessionID,
+				Role:      "user",
+				CreatedAt: time.Now(),
+				PartsAssetMeta: datatypes.NewJSONType(model.Asset{
+					S3Key:  "parts/proj/abc.json",
+					SHA256: "sha-abc",
+					MIME:   "application/json",
+				}),
+			},
+		}
+		repo.On("ListAllMessagesBySession", mock.Anything, sessionID).Return(msgs, nil)
+
+		// Seed Redis with cached parts containing the image asset
+		seedPartsCache(t, rdb, "sha-abc", imageParts)
+
+		// Mock materialSvc
+		mockMaterialSvc.On("CreateMaterialURL", mock.Anything, "assets/proj/img.png", "", mock.AnythingOfType("time.Duration"), "image/png", "photo.png").
+			Return("http://localhost:8029/api/v1/material/token123", time.Now().Add(time.Hour), nil)
+
+		svc := NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, rdb, mockMaterialSvc)
+
+		result, err := svc.GetMessages(context.Background(), GetMessagesInput{
+			ProjectID:          projectID,
+			SessionID:          sessionID,
+			Limit:              0,
+			WithAssetPublicURL: true,
+			AssetExpire:        time.Hour,
+		})
+
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.NotEmpty(t, result.PublicURLs)
+
+		pubURL, exists := result.PublicURLs["sha-img"]
+		assert.True(t, exists, "should have public URL for the image asset")
+		assert.Contains(t, pubURL.URL, "/api/v1/material/")
+
+		mockMaterialSvc.AssertExpectations(t)
+	})
+
+	t.Run("WithAssetPublicURL=false skips material URL generation", func(t *testing.T) {
+		mr := miniredis.RunT(t)
+		rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+
+		repo := new(MockSessionRepo)
+		mockAssetRefRepo := new(MockAssetReferenceRepo)
+		mockMaterialSvc := new(MockMaterialService)
+
+		session := &model.Session{ID: sessionID, ProjectID: projectID}
+		repo.On("Get", mock.Anything, mock.Anything).Return(session, nil)
+
+		msgs := []model.Message{
+			{
+				ID:        uuid.New(),
+				SessionID: sessionID,
+				Role:      "user",
+				CreatedAt: time.Now(),
+				PartsAssetMeta: datatypes.NewJSONType(model.Asset{
+					S3Key:  "parts/proj/abc.json",
+					SHA256: "sha-abc",
+				}),
+			},
+		}
+		repo.On("ListAllMessagesBySession", mock.Anything, sessionID).Return(msgs, nil)
+
+		seedPartsCache(t, rdb, "sha-abc", textParts)
+
+		svc := NewSessionService(repo, nil, mockAssetRefRepo, logger, nil, nil, cfg, rdb, mockMaterialSvc)
+
+		result, err := svc.GetMessages(context.Background(), GetMessagesInput{
+			ProjectID:          projectID,
+			SessionID:          sessionID,
+			Limit:              0,
+			WithAssetPublicURL: false,
+		})
+
+		assert.NoError(t, err)
+		assert.Empty(t, result.PublicURLs)
+
+		// materialSvc should NOT have been called
+		mockMaterialSvc.AssertNotCalled(t, "CreateMaterialURL")
+	})
 }

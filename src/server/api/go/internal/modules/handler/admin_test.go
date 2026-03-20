@@ -72,7 +72,7 @@ func TestAdminHandler_CreateProject(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		projectID := uuid.New()
 		secretKey := "test-secret-key-12345"
@@ -111,7 +111,7 @@ func TestAdminHandler_CreateProject(t *testing.T) {
 
 	t.Run("invalid request body", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
@@ -125,7 +125,7 @@ func TestAdminHandler_CreateProject(t *testing.T) {
 
 	t.Run("service error", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		mockSvc.On("Create", mock.Anything, mock.Anything).Return(nil, errors.New("service error"))
 
@@ -150,7 +150,7 @@ func TestAdminHandler_DeleteProject(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		projectID := uuid.New()
 
@@ -170,7 +170,7 @@ func TestAdminHandler_DeleteProject(t *testing.T) {
 
 	t.Run("invalid project id", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
@@ -184,7 +184,7 @@ func TestAdminHandler_DeleteProject(t *testing.T) {
 
 	t.Run("service error", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		projectID := uuid.New()
 
@@ -208,7 +208,7 @@ func TestAdminHandler_UpdateProjectSecretKey(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		projectID := uuid.New()
 		newSecretKey := "new-secret-key-67890"
@@ -238,7 +238,7 @@ func TestAdminHandler_UpdateProjectSecretKey(t *testing.T) {
 
 	t.Run("invalid project id", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
@@ -252,7 +252,7 @@ func TestAdminHandler_UpdateProjectSecretKey(t *testing.T) {
 
 	t.Run("service error", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		projectID := uuid.New()
 
@@ -276,7 +276,7 @@ func TestAdminHandler_AnalyzeProjectUsages(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		projectID := uuid.New()
 		intervalDays := 30
@@ -313,7 +313,7 @@ func TestAdminHandler_AnalyzeProjectUsages(t *testing.T) {
 
 	t.Run("invalid project id", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
@@ -327,7 +327,7 @@ func TestAdminHandler_AnalyzeProjectUsages(t *testing.T) {
 
 	t.Run("default interval_days", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		projectID := uuid.New()
 
@@ -346,7 +346,7 @@ func TestAdminHandler_AnalyzeProjectUsages(t *testing.T) {
 
 	t.Run("service error", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		projectID := uuid.New()
 
@@ -366,7 +366,7 @@ func TestAdminHandler_AnalyzeProjectUsages(t *testing.T) {
 
 	t.Run("with fields param", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		projectID := uuid.New()
 		expectedFields := []string{"storage"}
@@ -388,7 +388,7 @@ func TestAdminHandler_AnalyzeProjectUsages(t *testing.T) {
 
 	t.Run("with multiple fields param", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		projectID := uuid.New()
 		expectedFields := []string{"task_success", "task_status", "task_stats"}
@@ -408,7 +408,7 @@ func TestAdminHandler_AnalyzeProjectUsages(t *testing.T) {
 
 	t.Run("empty fields param fetches all", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		projectID := uuid.New()
 
@@ -432,7 +432,7 @@ func TestAdminHandler_AnalyzeProjectStatistics(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		projectID := uuid.New()
 
@@ -465,7 +465,7 @@ func TestAdminHandler_AnalyzeProjectStatistics(t *testing.T) {
 
 	t.Run("invalid project id", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
@@ -479,7 +479,7 @@ func TestAdminHandler_AnalyzeProjectStatistics(t *testing.T) {
 
 	t.Run("service error", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		projectID := uuid.New()
 
@@ -503,7 +503,7 @@ func TestAdminHandler_AnalyzeProjectMetrics(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		projectID := uuid.New()
 
@@ -531,7 +531,7 @@ func TestAdminHandler_AnalyzeProjectMetrics(t *testing.T) {
 
 	t.Run("invalid project id", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
@@ -545,7 +545,7 @@ func TestAdminHandler_AnalyzeProjectMetrics(t *testing.T) {
 
 	t.Run("service error", func(t *testing.T) {
 		mockSvc := new(MockProjectService)
-		handler := NewAdminHandler(mockSvc)
+		handler := NewAdminHandler(mockSvc, nil, nil, nil, nil, nil)
 
 		projectID := uuid.New()
 
