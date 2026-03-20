@@ -34,6 +34,16 @@ func NewAdminRouter(d AdminRouterDeps) *gin.Engine {
 		admin.GET("/project/:project_id/metrics", d.AdminHandler.AnalyzeProjectMetrics)
 	}
 
+	// Admin project encryption routes - protected by ProjectAuth (Bearer API key)
+	adminProject := r.Group("/admin/v1")
+	{
+		adminProject.Use(middleware.ProjectAuth(d.Config, d.DB))
+
+		adminProject.POST("/project/encrypt", d.AdminHandler.EncryptProject)
+		adminProject.POST("/project/decrypt", d.AdminHandler.DecryptProject)
+		adminProject.PUT("/project/secret_key", d.AdminHandler.UpdateProjectSecretKeyWithRewrap)
+	}
+
 	// Metrics routes - protected by API bearer token
 	metrics := r.Group("/metrics/v1")
 	{
